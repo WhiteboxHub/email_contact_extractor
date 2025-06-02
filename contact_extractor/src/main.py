@@ -63,10 +63,10 @@ def process_account(account, storage, extractor, email_filter):
             try:
                 contact = extractor.extract_contacts(email_data['message'])
                 if contact.get('email'):
-                    logging.info(f"Extracting contact from recruiter email: {contact['email']}")
+                    logging.info(f"Extracted contact: {contact['email']}")
                     contacts.append(contact)
                 else:
-                    logging.info(f"Skipping email, no valid contact found: {email_data['message'].get('From')}")
+                    logging.info(f"Skipped non-recruiter email: {email_data['message'].get('From')}")
             except Exception as e:
                 logging.error(f"Error extracting contact: {str(e)}")
                 continue
@@ -75,11 +75,11 @@ def process_account(account, storage, extractor, email_filter):
         if contacts:
             logging.info(f"Extracted {len(contacts)} contacts for {account['email']}")
             storage.save_contacts(account['email'], contacts)
-            # Only update last_run if contacts were extracted
-            uid = emails[0]['uid']
-            if isinstance(uid, int):
-                uid = str(uid)
-            storage.save_last_run(account['email'], uid)
+
+        if emails:
+            # Find the highest UID seen in this batch
+            max_uid = max(int(email['uid']) for email in emails)
+            storage.save_last_run(account['email'], str(max_uid))
 
     except Exception as e:
         logging.error(f"Error processing account {account['email']}: {str(e)}")
@@ -96,7 +96,7 @@ def deduplicate_contacts(contacts):
             seen.add(key)
             unique_contacts.append(contact)
         else:
-            logging.info(f"Duplicate contact found, skipping: {contact['email']}")
+            logging.info(f"Duplicate contact, not saving: {contact['email']}")
     return unique_contacts
 
 def main():

@@ -41,6 +41,8 @@ class StorageManager:
                     writer.writeheader()
                 
                 for contact in contacts:
+                    if contact.get('phone'):
+                        contact['phone'] = "'" + contact['phone']
                     contact['extracted_date'] = datetime.now().isoformat()
                     writer.writerow(contact)
         except Exception as e:
