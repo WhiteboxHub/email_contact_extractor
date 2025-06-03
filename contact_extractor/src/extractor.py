@@ -45,16 +45,8 @@ class ContactExtractor:
         domain_valid = self._validate_domain(domain)
 
         # Exclude generic job board/system emails
-        generic_patterns = [
-            r'jobs-listings@linkedin\.com',
-            r'newsletters-noreply@linkedin\.cc',
-            r'noreply@.*',
-            r'.*no-reply.*',
-            r'do-not-reply@.*',
-            r'notifications@.*',
-            r'jobs@.*',
-            r'info@.*'
-        ]
+        # Use always_blacklist patterns from rules.yaml for generic sender exclusion
+        generic_patterns = self.rules.get('always_blacklist', [])
         for pattern in generic_patterns:
             if re.fullmatch(pattern, from_email):
                 self.logger.info(f"Skipping generic sender: {from_email} (pattern: {pattern})")
