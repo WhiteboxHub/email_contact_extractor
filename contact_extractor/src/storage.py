@@ -16,11 +16,11 @@ class StorageManager:
         os.makedirs(self.data_dir, exist_ok=True)
 
     def save_contacts(self, email_account: str, contacts: list):
-        """Save contacts to CSV file"""
+        """Save contacts to CSV file, skipping duplicates already saved"""
         if not contacts:
+            self.logger.info(f"No contacts to save for {email_account}")
             return
 
-        # Ensure extracted_contacts directory exists only if saving contacts
         if not os.path.exists(self.contacts_dir):
             os.makedirs(self.contacts_dir, exist_ok=True)
 
@@ -28,7 +28,19 @@ class StorageManager:
             self.contacts_dir, f"{email_account.replace('@', '_at_')}.csv"
         )
         file_exists = os.path.isfile(filename)
-        
+
+        # --- Load existing emails for deduplication ---
+        existing_emails = set()
+        if file_exists:
+            try:
+                with open(filename, 'r', encoding='utf-8') as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    for row in reader:
+                        email = (row['email'] or '').strip().lower()
+                        existing_emails.add(email)
+            except Exception as e:
+                self.logger.error(f"Error reading existing contacts for deduplication: {str(e)}")
+
         try:
             with open(filename, 'a', newline='', encoding='utf-8') as csvfile:
                 fieldnames = [
@@ -40,11 +52,21 @@ class StorageManager:
                 if not file_exists:
                     writer.writeheader()
                 
+                new_count = 0
                 for contact in contacts:
+                    email = (contact.get('email') or '').strip().lower()
+                    if not email:
+                        continue  # skip contacts without email
+                    if email in existing_emails:
+                        self.logger.info(f"Duplicate contact already saved, skipping: {email}")
+                        continue
                     if contact.get('phone'):
                         contact['phone'] = "'" + contact['phone']
                     contact['extracted_date'] = datetime.now().isoformat()
                     writer.writerow(contact)
+                    existing_emails.add(email)
+                    new_count += 1
+            self.logger.info(f"Saved {new_count} new contacts to {filename}")
         except Exception as e:
             self.logger.error(f"Error saving contacts: {str(e)}")
 

@@ -16,7 +16,9 @@ class ContactExtractor:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             rules_path = os.path.join(base_dir, 'config', 'rules.yaml')
             with open(rules_path, 'r') as file:
-                return yaml.safe_load(file)
+                rules = yaml.safe_load(file)
+                self.logger.info(f"Loaded rules: {rules.keys()}")
+                return rules
         except Exception as e:
             self.logger.error(f"Error loading rules: {str(e)}")
             return {}
@@ -25,16 +27,18 @@ class ContactExtractor:
         subject = self._get_email_subject(email_message)
         from_email = self._get_sender_email(email_message)
         sender_name = parseaddr(email_message.get('From', ''))[0]
+        body = self._get_email_body(email_message)
 
-        # Check subject and sender name for recruiter keywords
-        subject_match = any(
-            keyword.lower() in subject.lower() 
-            for keyword in self.rules.get('recruiter_keywords', [])
-        )
-        name_match = any(
-            keyword.lower() in sender_name.lower()
-            for keyword in self.rules.get('recruiter_keywords', [])
-        )
+        # Defensive: always use a list
+        recruiter_keywords = self.rules.get('recruiter_keywords') or []
+        if not recruiter_keywords:
+            self.logger.error("No recruiter_keywords found in rules. Please check rules.yaml.")
+            return False
+
+        subject_match = any(keyword.lower() in subject.lower() for keyword in recruiter_keywords)
+        name_match = any(keyword.lower() in sender_name.lower() for keyword in recruiter_keywords)
+        email_match = any(keyword.lower() in from_email.lower() for keyword in recruiter_keywords)
+        body_match = any(keyword.lower() in body.lower() for keyword in recruiter_keywords)
 
         # Check sender domain against domain strategy
         domain = from_email.split('@')[-1].lower() if '@' in from_email else ''
@@ -53,10 +57,15 @@ class ContactExtractor:
         ]
         for pattern in generic_patterns:
             if re.fullmatch(pattern, from_email):
-                self.logger.info(f"Skipping generic sender: {from_email}")
+                self.logger.info(f"Skipping generic sender: {from_email} (pattern: {pattern})")
                 return False
 
-        return (subject_match or name_match) and domain_valid
+        if not (subject_match or name_match or email_match or body_match):
+            self.logger.info(f"Email from {from_email} skipped: no recruiter keywords in subject, sender name, sender email, or body.")
+        if not domain_valid:
+            self.logger.info(f"Email from {from_email} skipped: domain '{domain}' not valid per rules.")
+
+        return (subject_match or name_match or email_match or body_match) and domain_valid
 
     def _validate_domain(self, domain):
         if not domain:
@@ -65,12 +74,12 @@ class ContactExtractor:
         strategy = self.rules.get('domain_strategy', 'hybrid')
 
         # Check always_blacklist first
-        for pattern in self.rules.get('always_blacklist', []):
+        for pattern in self.rules.get('always_blacklist') or []:
             if re.fullmatch(pattern, domain):
                 return False
 
         # Check always_whitelist
-        for pattern in self.rules.get('always_whitelist', []):
+        for pattern in self.rules.get('always_whitelist') or []:
             if re.fullmatch(pattern, domain):
                 return True
 
@@ -78,21 +87,21 @@ class ContactExtractor:
         if strategy == 'whitelist':
             return any(
                 re.fullmatch(pattern, domain)
-                for pattern in self.rules.get('whitelist_domains', [])
+                for pattern in self.rules.get('whitelist_domains') or []
             )
         elif strategy == 'blacklist':
             return not any(
                 re.fullmatch(pattern, domain)
-                for pattern in self.rules.get('blacklist_patterns', [])
+                for pattern in self.rules.get('blacklist_patterns') or []
             )
         else:  # hybrid - must be in whitelist AND not in blacklist
             whitelisted = any(
                 re.fullmatch(pattern, domain)
-                for pattern in self.rules.get('whitelist_domains', [])
+                for pattern in self.rules.get('whitelist_domains') or []
             )
             blacklisted = any(
                 re.fullmatch(pattern, domain)
-                for pattern in self.rules.get('blacklist_patterns', [])
+                for pattern in self.rules.get('blacklist_patterns') or []
             )
             return whitelisted and not blacklisted
 
@@ -145,7 +154,7 @@ class ContactExtractor:
         return body
 
     def _extract_phone(self, text):
-        for pattern in self.rules.get('signature_patterns', {}).get('phone', []):
+        for pattern in self.rules.get('signature_patterns', {}).get('phone') or []:
             for match in re.finditer(pattern, text):
                 phone = match.group(0)
                 digits = re.sub(r'\D', '', phone)

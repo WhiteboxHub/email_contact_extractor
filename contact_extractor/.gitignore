@@ -2,7 +2,7 @@ venv/
 __pycache__/
 *.pyc
 *.log
-*.txt
+# *.txt
 *.csv
 *.json
 
