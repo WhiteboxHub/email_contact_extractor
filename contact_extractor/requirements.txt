@@ -1,0 +1,4 @@
+imaplib2>=3.5
+pyYAML>=6.0
+python-dateutil>=2.8.2
+

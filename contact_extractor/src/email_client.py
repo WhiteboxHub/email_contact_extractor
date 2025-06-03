@@ -32,7 +32,7 @@ class EmailClient:
         except Exception as e:
             self.logger.error(f"Error disconnecting {self.email}: {str(e)}")
 
-    def fetch_emails(self, since_date=None, since_uid=None):
+    def fetch_emails(self, since_date=None, since_uid=None, batch_size=150):
         if not self.mail:
             if not self.connect():
                 return []
@@ -43,16 +43,20 @@ class EmailClient:
             if since_date:
                 criteria = f'(SINCE "{since_date}")'
             elif since_uid:
-                criteria = f'(UID {since_uid}:*)'
+                # Only fetch emails with UID > last_uid
+                criteria = f'(UID {int(since_uid) + 1}:*)'
 
             status, messages = self.mail.search(None, criteria)
             if status != 'OK':
                 return []
 
             email_ids = messages[0].split()
+            # Sort UIDs in ascending order (oldest to newest)
+            email_ids = sorted(email_ids, key=lambda x: int(x))
+            # Take the first batch_size emails (oldest first)
+            batch_email_ids = email_ids[:batch_size]
             emails = []
-            
-            for email_id in reversed(email_ids):
+            for email_id in batch_email_ids:
                 status, msg_data = self.mail.fetch(email_id, '(RFC822)')
                 if status != 'OK':
                     continue

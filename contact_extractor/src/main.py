@@ -6,7 +6,6 @@ from extractor import ContactExtractor
 from filters import EmailFilter
 from storage import StorageManager
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -31,61 +30,65 @@ def load_accounts(filter_tags=None):
         logging.error(f"Error loading accounts: {str(e)}")
         return []
 
-def process_account(account, storage, extractor, email_filter):
+def process_account(account, storage, extractor, email_filter, batch_size=150):
     email_client = EmailClient(account)
     if not email_client.connect():
         logging.error(f"Failed to connect to {account['email']}")
         return
+
+    # Load previously saved emails for this account (from CSV)
+    seen_emails = set()
+    contacts_file = os.path.join(storage.contacts_dir, f"{account['email'].replace('@', '_at_')}.csv")
+    if os.path.exists(contacts_file):
+        import csv
+        with open(contacts_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('email'):
+                    seen_emails.add(row['email'].strip().lower())
 
     try:
         last_run = storage.load_last_run()
         account_last_run = last_run.get(account['email'], {})
         last_uid = account_last_run.get('last_uid')
 
-        # If last_uid is None, it's the first run for this account
-        if last_uid is None:
-            print(f"First run for {account['email']}: fetching all emails (or consider limiting for efficiency)")
-        else:
-            print(f"Fetching emails for {account['email']} since UID {last_uid}")
+        while True:
+            emails = email_client.fetch_emails(since_uid=last_uid, batch_size=batch_size)
+            if not emails:
+                break
 
-        emails = email_client.fetch_emails(since_uid=last_uid)
-        logging.info(f"Fetched {len(emails)} emails for {account['email']}")
+            recruiter_emails = email_filter.filter_recruiter_emails(emails, extractor)
+            contacts = []
+            for email_data in recruiter_emails:
+                try:
+                    contact = extractor.extract_contacts(email_data['message'])
+                    email_val = contact.get('email')
+                    if email_val:
+                        email_val = email_val.strip().lower()
+                        if email_val not in seen_emails:
+                            contacts.append(contact)
+                            seen_emails.add(email_val)
+                        else:
+                            logging.info(f"Duplicate email across batches, not saving: {email_val}")
+                except Exception as e:
+                    continue
 
-        if not emails:
-            logging.info(f"No new emails for {account['email']}")
-            return
+            if contacts:
+                storage.save_contacts(account['email'], contacts)
 
-        recruiter_emails = email_filter.filter_recruiter_emails(emails, extractor)
-        logging.info(f"Filtered {len(recruiter_emails)} recruiter emails for {account['email']}")
-
-        contacts = []
-        for email_data in recruiter_emails:
-            try:
-                contact = extractor.extract_contacts(email_data['message'])
-                if contact.get('email'):
-                    logging.info(f"Extracted contact: {contact['email']}")
-                    contacts.append(contact)
-                else:
-                    logging.info(f"Skipped non-recruiter email: {email_data['message'].get('From')}")
-            except Exception as e:
-                logging.error(f"Error extracting contact: {str(e)}")
-                continue
-
-        contacts = deduplicate_contacts(contacts)
-        if contacts:
-            logging.info(f"Extracted {len(contacts)} contacts for {account['email']}")
-            storage.save_contacts(account['email'], contacts)
-
-        if emails:
-            # Find the highest UID seen in this batch
+            # Update last_uid for next batch
             max_uid = max(int(email['uid']) for email in emails)
             storage.save_last_run(account['email'], str(max_uid))
+            last_uid = str(max_uid)
+
+            # If less than batch_size, we're done
+            if len(emails) < batch_size:
+                break
 
     except Exception as e:
         logging.error(f"Error processing account {account['email']}: {str(e)}")
     finally:
         email_client.disconnect()
-        logging.info(f"Completed processing for {account['email']}")
 
 def deduplicate_contacts(contacts):
     seen = set()
@@ -103,7 +106,6 @@ def main():
     logging.info("Starting email contact extraction")
 
     accounts = load_accounts(filter_tags=["job_search"])
-    # accounts = load_accounts()  # Uncomment to process all active accounts
 
     if not accounts:
         logging.error("No active accounts found matching criteria")
@@ -115,7 +117,7 @@ def main():
 
     for account in accounts:
         logging.info(f"Processing account: {account['email']}")
-        process_account(account, storage, extractor, email_filter)
+        process_account(account, storage, extractor, email_filter, batch_size=150)
 
     logging.info("Email contact extraction completed")
 

@@ -13,7 +13,9 @@ class EmailFilter:
         recruiter_emails = []
         for email_data in emails:
             try:
-                if extractor.is_recruiter_email(email_data['message']):
+                score = extractor.is_recruiter_email(email_data['message'])
+                self.logger.info(f"Recruiter score for email: {score}")
+                if score > 0.5:  # Adjust threshold as needed
                     recruiter_emails.append(email_data)
             except Exception as e:
                 self.logger.error(f"Error filtering email: {str(e)}")
