@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import yaml
 import os
 from email_client import EmailClient
+import phonenumbers
 
 class ContactExtractor:
     def __init__(self):
@@ -97,32 +98,28 @@ class ContactExtractor:
             )
             return whitelisted and not blacklisted
 
-    def extract_contacts(self, email_message):
+    def extract_contacts(self, email_message, source_email=None):
         from_header = email_message.get('From', '')
         sender_name, sender_email = parseaddr(from_header)
-        
         # Clean the sender name
         sender_name = ' '.join(
             part.capitalize() for part in re.split(r'[^a-zA-Z]', sender_name) if part
         )
-        
         # Get email body for further extraction
         body = self._get_email_body(email_message)
-        
         # Extract additional info from body/signature
         phone = self._extract_phone(body)
         company = self._extract_company(body, sender_email)
         website = self._extract_website(body)
-        linkedin_url = self._extract_linkedin(body)
-        
+        linkedin_id = self._extract_linkedin(body)
         return {
             'name': sender_name or None,
             'email': sender_email.lower() if sender_email else None,
             'phone': phone,
             'company': company,
             'website': website,
-            'source': 'email',
-            'linkedin_url': linkedin_url
+            'source': source_email.lower() if source_email else None,
+            'linkedin_id': linkedin_id
         }
 
     def _get_email_subject(self, email_message):
@@ -149,9 +146,15 @@ class ContactExtractor:
         for pattern in self.rules.get('signature_patterns', {}).get('phone') or []:
             for match in re.finditer(pattern, text):
                 phone = match.group(0)
-                digits = re.sub(r'\D', '', phone)
-                if 10 <= len(digits) <= 15:  # Acceptable phone number length
-                    return phone
+                # Try to parse and format the phone number
+                try:
+                    # You can specify a default region, e.g., 'US' or 'IN'
+                    parsed = phonenumbers.parse(phone, "US")
+                    if phonenumbers.is_valid_number(parsed):
+                        # Format to E.164: +1234567890
+                        return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+                except phonenumbers.NumberParseException:
+                    continue
         return None
 
     def _extract_company(self, text, sender_email):
@@ -184,8 +187,17 @@ class ContactExtractor:
         return None
 
     def _extract_linkedin(self, text):
+        # Look for LinkedIn URLs in the text
+        linkedin_pattern = r'https?://(?:[a-z]{2,3}\.)?linkedin\.com/in/([a-zA-Z0-9\-_]+)'
+        match = re.search(linkedin_pattern, text)
+        if match:
+            return match.group(1)  # This is the LinkedIn ID
+        # Fallback to previous patterns if needed
         for pattern in self.rules.get('signature_patterns', {}).get('linkedin', []):
             match = re.search(pattern, text)
             if match:
-                return match.group(0)
+                # Try to extract the ID from the matched URL
+                id_match = re.search(r'linkedin\.com/in/([a-zA-Z0-9\-_]+)', match.group(0))
+                if id_match:
+                    return id_match.group(1)
         return None

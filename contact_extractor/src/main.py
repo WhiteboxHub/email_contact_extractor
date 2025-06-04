@@ -63,7 +63,7 @@ def process_account(account, storage, extractor, email_filter, batch_size=100):
             contacts = []
             for email_data in recruiter_emails:
                 try:
-                    contact = extractor.extract_contacts(email_data['message'])
+                    contact = extractor.extract_contacts(email_data['message'], source_email=account['email'])
                     if contact.get('email'):
                         logging.info(f"Extracted contact: {contact}")
                         contacts.append(contact)
@@ -76,7 +76,7 @@ def process_account(account, storage, extractor, email_filter, batch_size=100):
             contacts = deduplicate_contacts(contacts)
             if contacts:
                 logging.info(f"Extracted {len(contacts)} contacts in this batch for {account['email']}")
-                storage.save_contacts(account['email'], contacts)
+                storage.save_contacts(None, contacts)
                 total_extracted += len(contacts)
 
             # Update max_uid_seen
