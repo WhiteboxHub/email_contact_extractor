@@ -43,13 +43,20 @@ class EmailClient:
 
         try:
             # Search criteria
-            criteria = "ALL"
-            if since_date:
-                criteria = f'(SINCE "{since_date}")'
-            elif since_uid:
-                criteria = f'(UID {since_uid}:*)'
+            # Update: fetch after last UID, not including it again
+            if since_uid:
+                # since_uid may be str, ensure int
+                try:
+                    next_uid = int(since_uid) + 1
+                except Exception:
+                    next_uid = since_uid  # fallback, but should be int
+                criteria = f'(UID {next_uid}:*)'
+            else:
+                criteria = "ALL"
 
-            status, messages = self.mail.search(None, criteria)
+            # status, messages = self.mail.search(None, criteria)
+            status, messages = self.mail.uid('search', None, criteria)
+
             if status != 'OK':
                 return [], None
 
@@ -65,7 +72,9 @@ class EmailClient:
 
             emails = []
             for email_id in batch_ids:
-                status, msg_data = self.mail.fetch(email_id, '(RFC822)')
+                # 
+                status, msg_data = self.mail.uid('fetch', email_id, '(RFC822)')
+
                 if status != 'OK':
                     continue
                 raw_email = msg_data[0][1]

@@ -42,6 +42,7 @@ def process_account(account, storage, extractor, email_filter, batch_size=100):
         account_last_run = last_run.get(account['email'], {})
         last_uid = account_last_run.get('last_uid')
 
+
         logging.info(f"Starting batch processing for {account['email']} (last_uid={last_uid})")
         start_index = 0
         max_uid_seen = int(last_uid) if last_uid else 0
